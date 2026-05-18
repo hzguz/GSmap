@@ -1,4 +1,4 @@
-# gsmap
+# GSmap
 
 Open source web app for selecting an area of an OpenStreetMap-based map and
 exporting it as a real, editable vector **SVG** ready for any design or
