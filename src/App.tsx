@@ -1,20 +1,23 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useLocale } from "./i18n";
 import {
   Copy,
   Download,
+  FileText,
   History,
   ImageDown,
   LayoutGrid,
   MapPinned,
-  Moon,
   Palette,
   Search,
+  Settings,
   ShieldCheck,
-  Sun,
   Trash2,
   type LucideIcon,
 } from "lucide-react";
 import { LicensePage } from "./LicensePage";
+import { PrivacyPage } from "./PrivacyPage";
 import { Logo } from "./Logo";
 import { MapView, type MapHandle } from "./MapView";
 import { searchPlace, parseCoordinates, type SearchResult } from "./nominatim";
@@ -27,8 +30,10 @@ import {
   pushRecent,
   type RecentLocation,
 } from "./recents";
+import { SettingsModal } from "./SettingsModal";
+import { StyleSelect } from "./StyleSelect";
 import { downloadBlob, downloadSvg, generateProjectedSvg } from "./svg";
-import { buildTokens, DEFAULT_STYLE_ID, getStyleDef, MAP_STYLES, type MapStyleId } from "./theme";
+import { buildTokens, DEFAULT_STYLE_ID, getStyleDef, type MapStyleId } from "./theme";
 import type { BBox, LayerKind } from "./types";
 import type { ProjectedFeatureSet } from "./svg";
 
@@ -40,10 +45,15 @@ function getInitialTheme(): UiTheme {
 }
 
 export function App() {
+  const { t } = useLocale();
   const mapRef = useRef<MapHandle>(null);
 
-  const [route, setRoute] = useState<"app" | "license">(
-    typeof window !== "undefined" && window.location.hash === "#license" ? "license" : "app",
+  const [route, setRoute] = useState<"app" | "license" | "privacy">(
+    typeof window !== "undefined"
+      ? window.location.hash === "#license" ? "license"
+        : window.location.hash === "#privacy" ? "privacy"
+        : "app"
+      : "app",
   );
   const [uiTheme, setUiTheme] = useState<UiTheme>(getInitialTheme);
   const [panelTab, setPanelTab] = useState<"workspace" | "history">("workspace");
@@ -63,13 +73,16 @@ export function App() {
   const [pendingSearchCoords, setPendingSearchCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [recents, setRecents] = useState<RecentLocation[]>(() => loadRecents());
   const [exporting, setExporting] = useState(false);
+  const [pngScale, setPngScale] = useState<1 | 2 | 3>(1);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [statusError, setStatusError] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     const onHash = () => {
-      setRoute(window.location.hash === "#license" ? "license" : "app");
+      const hash = window.location.hash;
+      setRoute(hash === "#license" ? "license" : hash === "#privacy" ? "privacy" : "app");
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -126,7 +139,7 @@ export function App() {
       const results = await searchPlace(nameQuery.trim());
       setSearchResults(results);
       if (results.length === 0) {
-        setStatusMsg("No results");
+        setStatusMsg(t.location.noResults);
         setStatusError(false);
       }
     } catch (err) {
@@ -183,14 +196,14 @@ export function App() {
     e.preventDefault();
     const parsed = parseCoordinates(coordQuery);
     if (!parsed) {
-      setStatusMsg("Invalid coordinates. Use: lat, lon");
+      setStatusMsg(t.location.invalidCoords);
       setStatusError(true);
       return;
     }
     setStatusMsg(null);
     setRecents((curr) =>
       pushRecent(curr, {
-        label: "Coordinates",
+        label: t.location.coordinates,
         lat: parsed.lat,
         lon: parsed.lon,
         kind: "coordinates",
@@ -207,7 +220,7 @@ export function App() {
         setCopiedKey((curr) => (curr === key ? null : curr));
       }, 1400);
     } catch (err) {
-      setStatusMsg(err instanceof Error ? err.message : "Copy failed");
+      setStatusMsg(err instanceof Error ? err.message : t.selection.copyFailed);
       setStatusError(true);
     }
   }
@@ -215,7 +228,7 @@ export function App() {
   function handleExportSvgLocal() {
     const map = mapRef.current;
     if (!bbox) {
-      setStatusMsg("Select an area first to export the local experimental SVG");
+      setStatusMsg(t.export.selectAreaFirst);
       setStatusError(true);
       return;
     }
@@ -226,7 +239,7 @@ export function App() {
     setStatusError(false);
     try {
       const filteredVisible = filterProjectedFeatureSetLayers(visible, hideBuildings ? ["buildings"] : []);
-      const svg = generateProjectedSvg(filteredVisible, tokens);
+      const svg = generateProjectedSvg(filteredVisible, tokens, !hideLabels);
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
       downloadSvg(svg, `gsmap-local-${stamp}.svg`);
       setStatusMsg(null);
@@ -242,7 +255,7 @@ export function App() {
   async function handleExportPng(scale: 1 | 2 | 3) {
     const map = mapRef.current;
     if (!map || !bbox) {
-      setStatusMsg("Select an area first to export PNG");
+      setStatusMsg(t.export.selectAreaFirstPng);
       setStatusError(true);
       return;
     }
@@ -269,138 +282,148 @@ export function App() {
             <Logo size={32} />
             <span className="brand-name">GSmap</span>
           </div>
-          <button
-            type="button"
-            className={"rail-item" + (route === "app" && panelTab === "workspace" ? " rail-item-active" : "")}
-            onClick={() => {
-              setRoute("app");
-              setPanelTab("workspace");
-              window.location.hash = "";
-            }}
-          >
-            <LayoutGrid size={18} strokeWidth={1.9} />
-            <span>Workspace</span>
-          </button>
-          <button
-            type="button"
-            className={"rail-item" + (route === "app" && panelTab === "history" ? " rail-item-active" : "")}
-            onClick={() => {
-              setRoute("app");
-              setPanelTab("history");
-              window.location.hash = "";
-            }}
-          >
-            <History size={18} strokeWidth={1.9} />
-            <span>History</span>
-          </button>
-          <button
-            type="button"
-            className={"rail-item" + (route === "license" ? " rail-item-active" : "")}
-            onClick={() => {
-              window.location.hash = "license";
-              setRoute("license");
-            }}
-          >
-            <ShieldCheck size={18} strokeWidth={1.9} />
-            <span>Licensing</span>
-          </button>
+          <RailItem
+            active={route === "app" && panelTab === "workspace"}
+            onClick={() => { setRoute("app"); setPanelTab("workspace"); window.location.hash = ""; }}
+            icon={<LayoutGrid size={18} strokeWidth={1.9} />}
+            label={t.nav.workspace}
+          />
+          <RailItem
+            active={route === "app" && panelTab === "history"}
+            onClick={() => { setRoute("app"); setPanelTab("history"); window.location.hash = ""; }}
+            icon={<History size={18} strokeWidth={1.9} />}
+            label={t.nav.history}
+          />
+          <RailItem
+            active={route === "license"}
+            onClick={() => { window.location.hash = "license"; setRoute("license"); }}
+            icon={<ShieldCheck size={18} strokeWidth={1.9} />}
+            label={t.nav.licensing}
+          />
+          <RailItem
+            active={route === "privacy"}
+            onClick={() => { window.location.hash = "privacy"; setRoute("privacy"); }}
+            icon={<FileText size={18} strokeWidth={1.9} />}
+            label={t.nav.privacy}
+          />
         </div>
 
         <div className="nav-rail-bottom">
-          <button
+          <motion.button
             type="button"
             className="rail-item rail-item-settings"
-            onClick={() => setUiTheme((t) => (t === "dark" ? "light" : "dark"))}
+            onClick={() => setSettingsOpen(true)}
+            whileHover={{ y: -1 }}
+            whileTap={{ y: 1 }}
+            transition={{ duration: 0.12 }}
           >
-            {uiTheme === "dark" ? <Sun size={16} strokeWidth={1.9} /> : <Moon size={16} strokeWidth={1.9} />}
-            <span>{uiTheme === "dark" ? "Light mode" : "Dark mode"}</span>
-          </button>
+            <Settings size={16} strokeWidth={1.9} />
+            <span>{t.nav.settings}</span>
+          </motion.button>
         </div>
       </aside>
+
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        uiTheme={uiTheme}
+        onChangeTheme={setUiTheme}
+      />
 
       {route === "app" && <aside className="panel">
         <div className="panel-header">
           <div>
             <h1 className="panel-title">
-              {panelTab === "workspace" ? "Workspace" : "History"}
+              {panelTab === "workspace" ? t.panel.workspace : t.panel.history}
             </h1>
             <div className="panel-subtitle">
               {panelTab === "workspace"
-                ? "Search, select, export a vector area"
-                : `${recents.length} recent ${recents.length === 1 ? "location" : "locations"}`}
+                ? t.panel.subtitleWorkspace
+                : t.panel.subtitleHistory(recents.length)}
             </div>
           </div>
         </div>
         <div className="panel-main">
           <div className="panel-body">
             {panelTab === "workspace" && <>
-              <PanelSection title="Location" icon={Search}>
+              <PanelSection title={t.location.sectionTitle} icon={Search}>
                   <form className="stack-sm" onSubmit={runNameSearch}>
                     <TextFieldAction
-                      label="Search by name"
-                      placeholder="Brooklyn Bridge, Lisbon"
+                      label={t.location.searchByName}
+                      placeholder={t.location.searchPlaceholder}
                       value={nameQuery}
                       onChange={setNameQuery}
-                      actionLabel="Find"
+                      actionLabel={t.location.findAction}
                       busy={searching}
                     />
-                    {searchResults.length > 0 && (
-                      <div className="results">
-                        {searchResults.map((r, i) => (
-                          <button
-                            key={i}
-                            className="result"
-                            type="button"
-                            onClick={() => applyResult(r)}
-                          >
-                            {r.display_name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <AnimatePresence>
+                      {searchResults.length > 0 && (
+                        <motion.div
+                          className="results"
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                        >
+                          {searchResults.map((r, i) => (
+                            <motion.button
+                              key={i}
+                              className="result"
+                              type="button"
+                              onClick={() => applyResult(r)}
+                              initial={{ opacity: 0, x: -4 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: i * 0.025, duration: 0.16 }}
+                            >
+                              {r.display_name}
+                            </motion.button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </form>
 
                   <form className="stack-sm" onSubmit={runCoordSearch}>
                     <TextFieldAction
-                      label="Coordinates"
-                      placeholder="40.7128, -74.0060"
+                      label={t.location.coordinates}
+                      placeholder={t.location.coordPlaceholder}
                       value={coordQuery}
                       onChange={setCoordQuery}
-                      actionLabel="Go"
+                      actionLabel={t.location.goAction}
                     />
                   </form>
                 </PanelSection>
 
                 <PanelSection
-                  title="Selection"
+                  title={t.selection.sectionTitle}
                   icon={MapPinned}
-                  action={bbox ? <span className="selection-pulse">Active</span> : undefined}
+                  action={bbox ? <span className="selection-pulse">{t.selection.active}</span> : undefined}
                 >
                   {!bbox && (
                     <div className="empty-state">
                       <div>
-                        Hold <span className="kbd">Shift</span> and drag on the map
+                        {t.selection.hint} <span className="kbd">{t.selection.hintKey}</span> {t.selection.hintSuffix}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--text-soft)" }}>
-                        to draw a rectangular area
+                        {t.selection.hintDetail}
                       </div>
                     </div>
                   )}
                   {bbox && (
                     <>
                       <dl className="kv">
-                        <dt>Center</dt>
+                        <dt>{t.selection.center}</dt>
                         <dd>
                           {((bbox.north + bbox.south) / 2).toFixed(5)},{" "}
                           {((bbox.east + bbox.west) / 2).toFixed(5)}
                         </dd>
-                        <dt>SW</dt>
+                        <dt>{t.selection.sw}</dt>
                         <dd>{bbox.south.toFixed(5)}, {bbox.west.toFixed(5)}</dd>
-                        <dt>NE</dt>
+                        <dt>{t.selection.ne}</dt>
                         <dd>{bbox.north.toFixed(5)}, {bbox.east.toFixed(5)}</dd>
                         {dimsKm && (
                           <>
-                            <dt>Size</dt>
+                            <dt>{t.selection.size}</dt>
                             <dd>
                               {dimsKm.widthKm.toFixed(2)} x {dimsKm.heightKm.toFixed(2)} km
                             </dd>
@@ -414,7 +437,7 @@ export function App() {
                           onClick={handleClearSelection}
                         >
                           <Trash2 size={13} strokeWidth={2} />
-                          Clear selection
+                          {t.selection.clearSelection}
                         </button>
                         <button
                           type="button"
@@ -430,37 +453,32 @@ export function App() {
                           }
                         >
                           <Copy size={13} strokeWidth={2} />
-                          {copiedKey === "current-selection" ? "Copied" : "Copy location"}
+                          {copiedKey === "current-selection" ? t.selection.copied : t.selection.copyLocation}
                         </button>
                       </div>
                     </>
                   )}
                 </PanelSection>
 
-                <PanelSection title="Style" icon={Palette}>
-                  <select
-                    className="select"
+                <PanelSection title={t.style.sectionTitle} icon={Palette}>
+                  <StyleSelect
                     value={styleId}
-                    onChange={(e) => setStyleId(e.target.value as MapStyleId)}
-                    aria-label="Map style"
-                  >
-                    {MAP_STYLES.map((s) => (
-                      <option key={s.id} value={s.id}>{s.label}</option>
-                    ))}
-                  </select>
+                    onChange={setStyleId}
+                    ariaLabel={t.style.mapStyle}
+                  />
                   <SwitchRow
-                    label="Hide labels"
+                    label={t.style.hideLabels}
                     checked={hideLabels}
                     onChange={setHideLabels}
                   />
                   <SwitchRow
-                    label="Hide buildings"
+                    label={t.style.hideBuildings}
                     checked={hideBuildings}
                     onChange={setHideBuildings}
                   />
                   <div className="roads-color-row">
                     <label htmlFor="roads-color-input" className="roads-color-label">
-                      Roads color
+                      {t.style.roadsColor}
                     </label>
                     <input
                       id="roads-color-input"
@@ -468,7 +486,7 @@ export function App() {
                       className="roads-color-input"
                       value={effectiveRoadsColor}
                       onChange={(e) => setRoadsColor(e.target.value)}
-                      aria-label="Pick roads color"
+                      aria-label={t.style.roadsColor}
                     />
                     {roadsColor && (
                       <button
@@ -476,7 +494,7 @@ export function App() {
                         className="roads-color-reset"
                         onClick={() => setRoadsColor(null)}
                       >
-                        Reset
+                        {t.style.reset}
                       </button>
                     )}
                   </div>
@@ -485,23 +503,34 @@ export function App() {
 
             {panelTab === "history" && (
               <PanelSection
-                title="History"
+                title={t.historySection.sectionTitle}
                 icon={History}
                 action={
                   <button
                     type="button"
                     className="section-action"
                     onClick={handleClearRecents}
-                    aria-label="Clear location history"
+                    aria-label={t.historySection.clearHistory}
                   >
                     <Trash2 size={13} strokeWidth={2} />
                   </button>
                 }
               >
                 {recents.length > 0 ? (
-                  <div className="recents">
+                  <motion.div
+                    className="recents"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.18 }}
+                  >
                     {recents.map((r, i) => (
-                      <div key={i} className="recent-card">
+                      <motion.div
+                        key={i}
+                        className="recent-card"
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.025, duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                      >
                         <button
                           type="button"
                           className="recent-item"
@@ -510,7 +539,7 @@ export function App() {
                         >
                           <span className="recent-label">{r.label}</span>
                           <span className="recent-meta">
-                            {r.kind === "search" ? "Search" : r.kind === "coordinates" ? "Coordinates" : "Selection"}
+                            {r.kind === "search" ? t.historySection.kindSearch : r.kind === "coordinates" ? t.historySection.kindCoordinates : t.historySection.kindSelection}
                           </span>
                           <span className="recent-coords">{formatCoords(r.lat, r.lon)}</span>
                         </button>
@@ -520,16 +549,16 @@ export function App() {
                           onClick={() => copyLocation(`recent-${i}`, formatRecentCopyText(r))}
                         >
                           <Copy size={13} strokeWidth={2} />
-                          {copiedKey === `recent-${i}` ? "Copied" : "Copy"}
+                          {copiedKey === `recent-${i}` ? t.historySection.copied : t.historySection.copy}
                         </button>
-                      </div>
+                      </motion.div>
                     ))}
-                  </div>
+                  </motion.div>
                 ) : (
                   <div className="empty-state">
-                    <div>No history yet</div>
+                    <div>{t.historySection.noHistory}</div>
                     <div style={{ fontSize: 11, color: "var(--text-soft)" }}>
-                      searches and selections will appear here
+                      {t.historySection.noHistoryDetail}
                     </div>
                   </div>
                 )}
@@ -541,9 +570,9 @@ export function App() {
         <div className="panel-bottom">
           <div className="export-dock">
             <div className="export-header">
-              <span className="export-title">Export</span>
+              <span className="export-title">{t.export.sectionTitle}</span>
               <span className={"export-state" + (bbox ? " export-state-ready" : "")}>
-                {bbox ? "Area selected" : "Select area"}
+                {bbox ? t.export.areaSelected : t.export.selectArea}
               </span>
             </div>
             <button
@@ -555,28 +584,36 @@ export function App() {
               {exporting ? (
                 <>
                   <span className="spinner" />
-                  Exporting...
+                  {t.export.exporting}
                 </>
               ) : (
                 <>
                   <Download size={15} strokeWidth={2} />
-                  Local SVG
+                  {t.export.localSvg}
                 </>
               )}
             </button>
-            <div className="export-format-row">
-              {([1, 2, 3] as const).map((scale) => (
-                <button
-                  key={scale}
-                  className="btn export-chip"
-                  type="button"
-                  onClick={() => handleExportPng(scale)}
-                  disabled={exporting || !bbox}
-                >
-                  {scale === 1 && <ImageDown size={13} strokeWidth={2} />}
-                  {scale === 1 ? "PNG 1x" : `${scale}x`}
-                </button>
-              ))}
+            <div className="export-png-row">
+              <button
+                className="btn export-chip export-png-btn"
+                type="button"
+                onClick={() => handleExportPng(pngScale)}
+                disabled={exporting || !bbox}
+              >
+                <ImageDown size={13} strokeWidth={2} />
+                {t.export.exportPng}
+              </button>
+              <select
+                className="select export-png-scale"
+                value={pngScale}
+                onChange={(e) => setPngScale(Number(e.target.value) as 1 | 2 | 3)}
+                disabled={exporting || !bbox}
+                aria-label={t.export.pngAriaLabel}
+              >
+                <option value={1}>1x</option>
+                <option value={2}>2x</option>
+                <option value={3}>3x</option>
+              </select>
             </div>
             {statusMsg && (
               <div
@@ -591,17 +628,17 @@ export function App() {
 
           <footer className="app-footer">
             <div>
-              Map data ©{" "}
+              {t.footer.mapData}{" "}
               <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
                 OpenStreetMap
               </a>{" "}
-              contributors (ODbL). {styleDef.attribution}.
+              {t.footer.contributors} {styleDef.attribution}.
             </div>
           </footer>
         </div>
       </aside>}
 
-      {route === "app" ? (
+      {route === "app" && (
         <MapView
           ref={mapRef}
           styleId={styleId}
@@ -610,20 +647,67 @@ export function App() {
           roadsColor={roadsColor}
           onSelect={setBbox}
         />
-      ) : (
-        <div className="license-shell">
-          <LicensePage
-            embedded
-            uiTheme={uiTheme}
-            onToggleTheme={() => setUiTheme((t) => (t === "dark" ? "light" : "dark"))}
-            onBack={() => {
-              window.location.hash = "";
-              setRoute("app");
-            }}
-          />
-        </div>
       )}
+      <AnimatePresence mode="wait">
+        {route === "license" && (
+          <motion.div
+            key="license"
+            className="license-shell"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <LicensePage
+              embedded
+              uiTheme={uiTheme}
+              onToggleTheme={() => setUiTheme((t) => (t === "dark" ? "light" : "dark"))}
+              onBack={() => { window.location.hash = ""; setRoute("app"); }}
+            />
+          </motion.div>
+        )}
+        {route === "privacy" && (
+          <motion.div
+            key="privacy"
+            className="license-shell"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <PrivacyPage
+              embedded
+              uiTheme={uiTheme}
+              onToggleTheme={() => setUiTheme((t) => (t === "dark" ? "light" : "dark"))}
+              onBack={() => { window.location.hash = ""; setRoute("app"); }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+type RailItemProps = {
+  active: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+  label: string;
+};
+
+function RailItem({ active, onClick, icon, label }: RailItemProps) {
+  return (
+    <motion.button
+      type="button"
+      className={"rail-item" + (active ? " rail-item-active" : "")}
+      onClick={onClick}
+      whileHover={{ y: -1 }}
+      whileTap={{ y: 1 }}
+      transition={{ duration: 0.12 }}
+    >
+      {icon}
+      <span>{label}</span>
+    </motion.button>
   );
 }
 
@@ -636,7 +720,12 @@ type PanelSectionProps = {
 
 function PanelSection({ title, icon: Icon, action, children }: PanelSectionProps) {
   return (
-    <section className="section section-card">
+    <motion.section
+      className="section section-card"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+    >
       <div className="section-title">
         <span className="section-heading">
           <Icon size={14} strokeWidth={2} />
@@ -645,7 +734,7 @@ function PanelSection({ title, icon: Icon, action, children }: PanelSectionProps
         {action}
       </div>
       {children}
-    </section>
+    </motion.section>
   );
 }
 

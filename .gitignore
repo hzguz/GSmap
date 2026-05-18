@@ -3,3 +3,9 @@ dist
 .DS_Store
 *.local
 .env
+
+# Build artifacts
+*.tsbuildinfo
+
+# Planning and internal docs
+planejamento.md

@@ -200,30 +200,57 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(
     captureSelectedPng(bbox, scale) {
       const map = mapRef.current;
       if (!map) return Promise.reject(new Error("Map is not ready"));
-      const sourceCanvas = map.getCanvas();
-      const crop = getCanvasCropForBbox(map, bbox);
-      const ratioX = sourceCanvas.width / sourceCanvas.clientWidth;
-      const ratioY = sourceCanvas.height / sourceCanvas.clientHeight;
-      const srcX = Math.round(crop.x * ratioX);
-      const srcY = Math.round(crop.y * ratioY);
-      const srcW = Math.max(1, Math.round(crop.width * ratioX));
-      const srcH = Math.max(1, Math.round(crop.height * ratioY));
-      const outW = Math.max(1, Math.round(srcW * scale));
-      const outH = Math.max(1, Math.round(srcH * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = outW;
-      canvas.height = outH;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return Promise.reject(new Error("Canvas export is not available"));
-      ctx.drawImage(sourceCanvas, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
-      return new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((blob) => {
-          if (!blob) {
-            reject(new Error("PNG export failed"));
-            return;
-          }
-          resolve(blob);
-        }, "image/png");
+
+      const originalPixelRatio = window.devicePixelRatio;
+      const targetPixelRatio = originalPixelRatio * scale;
+
+      const hasSelectionLayers =
+        map.getLayer(SELECTION_FILL) && map.getLayer(SELECTION_LINE);
+
+      const restoreAndCrop = (): Promise<Blob> => {
+        const sourceCanvas = map.getCanvas();
+        // At targetPixelRatio the canvas physical size is scaled up.
+        // CSS crop coords stay in logical pixels so we scale them here.
+        const crop = getCanvasCropForBbox(map, bbox);
+        const ratio = sourceCanvas.width / sourceCanvas.clientWidth;
+        const srcX = Math.round(crop.x * ratio);
+        const srcY = Math.round(crop.y * ratio);
+        const srcW = Math.max(1, Math.round(crop.width * ratio));
+        const srcH = Math.max(1, Math.round(crop.height * ratio));
+
+        const out = document.createElement("canvas");
+        out.width = srcW;
+        out.height = srcH;
+        const ctx = out.getContext("2d");
+        if (!ctx) return Promise.reject(new Error("Canvas export is not available"));
+        ctx.drawImage(sourceCanvas, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
+
+        // Restore original pixel ratio immediately after reading the canvas.
+        map.setPixelRatio(originalPixelRatio);
+        if (hasSelectionLayers) {
+          map.setLayoutProperty(SELECTION_FILL, "visibility", "visible");
+          map.setLayoutProperty(SELECTION_LINE, "visibility", "visible");
+        }
+
+        return new Promise<Blob>((resolve, reject) => {
+          out.toBlob((blob) => {
+            if (!blob) { reject(new Error("PNG export failed")); return; }
+            resolve(blob);
+          }, "image/png");
+        });
+      };
+
+      if (hasSelectionLayers) {
+        map.setLayoutProperty(SELECTION_FILL, "visibility", "none");
+        map.setLayoutProperty(SELECTION_LINE, "visibility", "none");
+      }
+
+      // Bump pixel ratio so MapLibre re-renders at the target resolution,
+      // then capture on the next rendered frame.
+      map.setPixelRatio(targetPixelRatio);
+      return new Promise((resolve, reject) => {
+        map.once("render", () => restoreAndCrop().then(resolve, reject));
+        map.triggerRepaint();
       });
     },
   }));

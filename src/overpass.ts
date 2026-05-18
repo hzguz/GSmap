@@ -89,7 +89,7 @@ export async function fetchFeatures(bbox: BBox): Promise<FeatureSet> {
   const body = "data=" + encodeURIComponent(buildQuery(bbox));
   const res = await fetch(OVERPASS_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "gsmap/1.0 (https://github.com/hzguz/gsmap)" },
     body,
   });
   if (!res.ok) {

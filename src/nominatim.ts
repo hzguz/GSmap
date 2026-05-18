@@ -20,7 +20,7 @@ export async function searchPlace(query: string): Promise<SearchResult[]> {
 
   const url = `${NOMINATIM_URL}?format=json&limit=8&q=${encodeURIComponent(query)}`;
   const res = await fetch(url, {
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", "User-Agent": "gsmap/1.0 (https://github.com/hzguz/gsmap)" },
   });
   if (!res.ok) throw new Error(`Nominatim error ${res.status}`);
   const raw = (await res.json()) as Array<{

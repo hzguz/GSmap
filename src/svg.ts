@@ -83,6 +83,20 @@ function styleForLayer(layer: LayerKind, t: ThemeTokens): { fill: string; stroke
   }
 }
 
+// Returns the midpoint of the first M…L segment in a path `d` string.
+// Used to anchor labels without a full geometry centroid calculation.
+function labelPointFromPath(d: string): { x: number; y: number } | null {
+  const coords = d.match(/[ML]\s*([\d.]+)\s+([\d.]+)/gi);
+  if (!coords || coords.length === 0) return null;
+  let sumX = 0, sumY = 0;
+  for (const token of coords) {
+    const parts = token.slice(1).trim().split(/\s+/);
+    sumX += parseFloat(parts[0]);
+    sumY += parseFloat(parts[1]);
+  }
+  return { x: sumX / coords.length, y: sumY / coords.length };
+}
+
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -180,6 +194,7 @@ export function generateSvg(
 export function generateProjectedSvg(
   set: ProjectedFeatureSet,
   tokens: ThemeTokens,
+  showLabels = false,
 ): string {
   const groups: string[] = [];
 
@@ -201,6 +216,24 @@ export function generateProjectedSvg(
       })
       .join("\n");
     groups.push(`  <g id="${layer}" ${styleAttr}>\n${paths}\n  </g>`);
+  }
+
+  if (showLabels) {
+    const fontSize = Math.max(8, Math.round(Math.min(set.width, set.height) * 0.012));
+    const textEls = set.features
+      .filter((f) => f.name)
+      .map((f) => {
+        const pt = labelPointFromPath(f.d);
+        if (!pt) return "";
+        const id = `label-${f.id.replace(/\//g, "-")}`;
+        return `    <text id="${id}" x="${fmt(pt.x)}" y="${fmt(pt.y)}" dominant-baseline="middle" text-anchor="middle">${escapeXml(f.name!)}</text>`;
+      })
+      .filter(Boolean)
+      .join("\n");
+    if (textEls) {
+      const labelStyle = `font-family="sans-serif" font-size="${fontSize}" fill="${tokens.labels}" pointer-events="none"`;
+      groups.push(`  <g id="labels" ${labelStyle}>\n${textEls}\n  </g>`);
+    }
   }
 
   return [
