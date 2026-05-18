@@ -1,4 +1,4 @@
-import logoUrl from "./Logo.svg?url";
+import logoUrl from "./logo.svg?url";
 
 type Props = {
   size?: number;
