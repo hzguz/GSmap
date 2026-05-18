@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { type MouseEvent, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Moon, Sun, X } from "lucide-react";
 import { useLocale, type LocalePref } from "./i18n";
@@ -44,7 +44,7 @@ export function SettingsModal({ open, onClose, uiTheme, onChangeTheme }: Props) 
             role="dialog"
             aria-modal="true"
             aria-labelledby="settings-title"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e: MouseEvent<HTMLDivElement>) => e.stopPropagation()}
             initial={{ opacity: 0, scale: 0.96, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 8 }}
